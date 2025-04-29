@@ -1,4 +1,4 @@
-# Simple Chatbot Server
+# Qwen 3 Chatbot
 
 A Pipecat bot.py file that is built to be deployed to Pipecat Cloud.
 

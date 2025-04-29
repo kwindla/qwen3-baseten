@@ -1,6 +1,6 @@
-# Simple Chatbot for Pipecat Cloud
+# Qwen 3 Chatbot: Baseten inference, Pipecat Cloud, Vercel
 
-This project demonstrates how to build a complete Pipecat AI agent application with both client and server components. It includes a Next.js client for interacting with a Pipecat AI bot server through Daily.co's WebRTC transport.
+Simple chatbot with an SGLang/Baseten processor in `server/baseten_llm_hack.py`. Also includes a Next.js client for interacting with a bot server through Daily.co's WebRTC transport. Deployable to Pipecat Cloud and Vercel.
 
 <img src="image.png" width="420px">
 
@@ -9,8 +9,6 @@ This project demonstrates how to build a complete Pipecat AI agent application w
 - **Server**: Python-based Pipecat bot with video/audio processing capabilities
 - **Client**: Next.js TypeScript web application using the Pipecat React & JS SDKs
 - **Infrastructure**: Deployable to Pipecat Cloud (server) and Vercel (client)
-
-> See the [simple-chatbot example](https://github.com/pipecat-ai/pipecat/tree/main/examples/simple-chatbot) with different client and server implementations.
 
 ## Quick Start
 
@@ -131,27 +129,3 @@ pcc deploy
 3. Add your `PIPECAT_CLOUD_API_KEY` environment variable in Vercel
 
 4. Deploy with the Vercel dashboard or CLI
-
-## Project Structure
-
-```
-simple-chatbot/
-├── client-next/            # Next.js client application
-│   ├── src/
-│   │   ├── app/            # Next.js app routes
-│   │   │   └── api/
-│   │   │       └── connect/ # API endpoint for Daily.co connection
-│   │   ├── components/     # React components
-│   │   └── providers/      # React providers including RTVIProvider
-│   ├── package.json
-│   └── README.md          # Client-specific documentation
-│
-└── server/                # Pipecat bot server
-    ├── assets/            # Robot animation frames
-    ├── bot.py             # The Pipecat pipeline implementation
-    ├── Dockerfile         # For building the container image
-    ├── build.sh           # Script for building and pushing Docker image
-    ├── requirements.txt   # Python dependencies
-    ├── pcc-deploy.toml    # Pipecat Cloud deployment config
-    └── README.md          # Server-specific documentation
-```
