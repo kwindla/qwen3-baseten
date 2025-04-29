@@ -5,8 +5,6 @@ import { DailyTransport } from '@pipecat-ai/daily-transport';
 import { RTVIClientProvider } from '@pipecat-ai/client-react';
 import { PropsWithChildren, useEffect, useState } from 'react';
 
-const MY_CUSTOM_DATA = { foo: 'bar' };
-
 export function RTVIProvider({ children }: PropsWithChildren) {
   const [client, setClient] = useState<RTVIClient | null>(null);
 
@@ -21,9 +19,7 @@ export function RTVIProvider({ children }: PropsWithChildren) {
         endpoints: {
           connect: '/connect',
         },
-        requestData: { MY_CUSTOM_DATA },
       },
-      enableMic: true,
       enableCam: false,
     });
 

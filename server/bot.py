@@ -17,14 +17,16 @@ The bot runs as part of a pipeline that processes audio/video frames and manages
 the conversation flow.
 """
 
+import sys
 import os
+
+from typing import List, TypedDict, Optional, Dict
+
 
 import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 from PIL import Image
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -32,8 +34,10 @@ from pipecat.frames.frames import (
     Frame,
     OutputImageRawFrame,
     SpriteFrame,
-    TTSSpeakFrame,
 )
+from pipecat.transcriptions.language import Language
+from pipecat.services.gladia.config import GladiaInputParams, LanguageConfig
+from pipecat.services.gladia.stt import GladiaSTTService
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -41,11 +45,14 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIProcessor
 from pipecat.services.cartesia import CartesiaTTSService
-from pipecat.services.openai import OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecatcloud.agent import DailySessionArguments
+from baseten_llm_hack import BaseTenSGLangService
 
 load_dotenv(override=True)
+
+logger.remove()
+logger.add(sys.stderr, level="DEBUG")
 
 # Check if we're in local development mode
 LOCAL_RUN = os.getenv("LOCAL_RUN")
@@ -82,6 +89,17 @@ quiet_frame = sprites[0]  # Static frame for when bot is listening
 talking_frame = SpriteFrame(images=sprites)  # Animation sequence for when bot is talking
 
 
+# Define a custom type that represents the format of chunks received from Baseten
+# Adjust this based on the actual structure of your Baseten response.
+class BasetenChunk(TypedDict):
+    id: str  # Add id
+    object: str  # Add object
+    created: int  # Add created
+    model: str  # Add model
+    choices: List[Dict]  # Add choices
+    usage: Optional[Dict]  # Add usage
+
+
 class TalkingAnimation(FrameProcessor):
     """Manages the bot's visual animation states.
 
@@ -115,16 +133,6 @@ class TalkingAnimation(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-async def fetch_weather_from_api(function_name, tool_call_id, args, llm, context, result_callback):
-    """Fetch weather data dummy function.
-
-    This function simulates fetching weather data from an external API.
-    It demonstrates how to call an external service from the language model.
-    """
-    await llm.push_frame(TTSSpeakFrame("Let me check on that."))
-    await result_callback({"conditions": "nice", "temperature": "75"})
-
-
 async def main(room_url: str, token: str, config: dict):
     """Main bot execution function.
 
@@ -147,71 +155,51 @@ async def main(room_url: str, token: str, config: dict):
             camera_out_enabled=True,  # Enable the camera output for the bot
             camera_out_width=1024,  # Set the camera output width
             camera_out_height=576,  # Set the camera output height
-            transcription_enabled=True,  # Enable transcription for the user
+            transcription_enabled=False,  # Enable transcription for the user
             vad_enabled=True,  # Enable VAD to handle user speech
             vad_analyzer=SileroVADAnalyzer(),  # Use the Silero VAD analyzer
             vad_audio_passthrough=True,  # Pass audio through VAD for user speech to the rest of the pipeline
         ),
     )
 
-    # Initialize text-to-speech service
+    stt = GladiaSTTService(
+        api_key=os.getenv("GLADIA_API_KEY", ""),
+        params=GladiaInputParams(
+            language_config=LanguageConfig(
+                languages=[Language.EN],
+            )
+        ),
+    )
+
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
         voice_id="c45bc5ec-dc68-4feb-8829-6e6b2748095d",  # Movieman
     )
 
-    # Initialize LLM service
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
-
-    # Register your function call providing the function name and callback
-    llm.register_function("get_current_weather", fetch_weather_from_api)
-
-    # Define your function call using the FunctionSchema
-    # Learn more about function calling in Pipecat:
-    # https://docs.pipecat.ai/guides/features/function-calling
-    weather_function = FunctionSchema(
-        name="get_current_weather",
-        description="Get the current weather",
-        properties={
-            "location": {
-                "type": "string",
-                "description": "The city and state, e.g. San Francisco, CA",
-            },
-            "format": {
-                "type": "string",
-                "enum": ["celsius", "fahrenheit"],
-                "description": "The temperature unit to use. Infer this from the user's location.",
-            },
-        },
-        required=["location", "format"],
+    llm = BaseTenSGLangService(
+        api_key=os.getenv("BASETEN_API_KEY"),
+        model="baseten-sglang",
+        baseten_endpoint="https://model-7wln1dv3.api.baseten.co/environments/production/predict",
     )
 
-    # Set up the tools schema with your weather function call
-    tools = ToolsSchema(standard_tools=[weather_function])
-
-    # Set up initial messages for the bot
     messages = [
         {
             "role": "system",
-            "content": "You are Chatbot, a friendly, helpful robot. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way, but keep your responses brief. Start by introducing yourself.",
+            "content": "You are Chatbot, a friendly, helpful robot. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way, but keep your responses brief. Start by introducing yourself and saying you are powered by Qwen 3 32B running on Base-ten. /no_think",
         },
     ]
 
-    # Set up conversation context and management
-    # The context_aggregator will automatically collect conversation context
-    # Pass your initial messages and tools to the context to initialize the context
-    context = OpenAILLMContext(messages, tools)
+    context = OpenAILLMContext(messages)
     context_aggregator = llm.create_context_aggregator(context)
 
     ta = TalkingAnimation()
 
-    # RTVI events for Pipecat client UI
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    # Add your processors to the pipeline
     pipeline = Pipeline(
         [
             transport.input(),
+            stt,
             rtvi,
             context_aggregator.user(),
             llm,
@@ -222,7 +210,6 @@ async def main(room_url: str, token: str, config: dict):
         ]
     )
 
-    # Create a PipelineTask to manage the pipeline
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
@@ -243,7 +230,7 @@ async def main(room_url: str, token: str, config: dict):
         # Push a static frame to show the bot is listening
         await task.queue_frame(quiet_frame)
         # Capture the first participant's transcription
-        await transport.capture_participant_transcription(participant["id"])
+        # await transport.capture_participant_transcription(participant["id"])
         # Kick off the conversation by pushing a context frame to the pipeline
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 

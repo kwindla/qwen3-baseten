@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
     const { MY_CUSTOM_DATA } = await request.json();
 
     const response = await fetch(
-      'https://api.pipecat.daily.co/v1/public/simple-chatbot/start',
+      'https://api.pipecat.daily.co/v1/public/qwen3-chatbot/start',
       {
         method: 'POST',
         headers: {
